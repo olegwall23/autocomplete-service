@@ -1,8 +1,10 @@
 package com.example.autocompletenodeservice.service.impl;
 
 import com.example.autocompletenodeservice.service.AutocompleteService;
+import com.example.autocompletenodeservice.service.CachingService;
 import com.example.autocompletenodeservice.vo.Node;
 import com.example.autocompletenodeservice.vo.WordRank;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -13,10 +15,22 @@ import java.util.Map;
 @Service
 public class AutocompleteServiceImpl implements AutocompleteService {
 
+    @Autowired
+    private CachingService cachingService;
+
     private static Node node = new Node();
 
     @Override
     public void add(String word, boolean incrementRequests) {
+        add(word, true, null);
+    }
+
+    @Override
+    public void add(String word, int rank) {
+        add(word, false, rank);
+    }
+
+    private void add(String word, boolean increment, Integer rank) {
         synchronized (node) {
             Node startFrom = node;
             for (int i = 0; i < word.length(); i++) {
@@ -30,8 +44,10 @@ public class AutocompleteServiceImpl implements AutocompleteService {
                 }
             }
             startFrom.setWord(word);
-            if (incrementRequests) {
+            if (increment) {
                 startFrom.setCount(startFrom.getCount() + 1);
+            } else if (rank != null) {
+                startFrom.setCount(rank);
             }
         }
     }
@@ -114,16 +130,24 @@ public class AutocompleteServiceImpl implements AutocompleteService {
 
             Node startFrom = goToNodeByPrefix(node, prefix);
             getWordRankRec(startFrom, wordRanks);
-            System.out.println();
 
             Collections.sort(wordRanks);
 
-            wordRanks.forEach(wordRank -> {
-                System.out.println(wordRank.getWord() + " | " + wordRank.getRank());
-            });
+            return wordRanks.subList(0, Math.min(wordsToShow, wordRanks.size()));
+        }
+    }
+
+    @Override
+    public List<WordRank> getTopSuggestedWordsWithCache(String prefix, int wordsToShow) {
+        List<WordRank> result = cachingService.get(prefix);
+        if (result != null) {
+            return result;
         }
 
-        return null;
+        result = getTopSuggestedWords(prefix, wordsToShow);
+        cachingService.add(prefix, result);
+
+        return result;
     }
 
     private void getWordRankRec(Node node, List<WordRank> wordRanks) {
